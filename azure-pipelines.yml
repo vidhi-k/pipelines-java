@@ -10,7 +10,7 @@ pool:
   vmImage: ubuntu-latest
 
 extends:
-  template: .pipelines/M365GovernedTemplates/M365.NonOfficial.Release.yml
+  template: .pipelines/M365GovernedTemplates/M365.NonOfficial.Release.yml@Test
   parameters:
     platform:
       name: m365
