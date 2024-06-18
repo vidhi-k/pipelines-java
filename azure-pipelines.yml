@@ -9,14 +9,32 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 
-steps:
-- task: Maven@3
-  inputs:
-    mavenPomFile: 'pom.xml'
-    mavenOptions: '-Xmx3072m'
-    javaHomeOption: 'JDKVersion'
-    jdkVersionOption: '1.8'
-    jdkArchitectureOption: 'x64'
-    publishJUnitResults: true
-    testResultsFiles: '**/surefire-reports/TEST-*.xml'
-    goals: 'package'
+extends:
+  template: v2/Microsoft.NonOfficial.yml@OneBranchTemplates
+  parameters:
+    platform:
+      name: m365
+      workload: 'SPO'
+      serviceTreeId: $(service_tree_id)
+      serviceGroupName: 'cosmic.saferolloutconfig.services'
+      sdpPolicyInput:
+        payloadName: <ServiceName>
+    stages:
+    - stage: 'Prod_RolloutServiceSetup'
+      displayName: 'RolloutServiceSetup'
+      variables:
+        stage_type: nonDeployment
+        useV2BedrockTask: true
+      jobs:
+      - job: 'RegisterPayload'
+        pool: 
+          type: release
+        steps:
+        - task: saferolloutfc.SafeRolloutExtension.RolloutServiceAgent.RolloutServiceAgent@2
+          inputs:
+            Command: 'register'
+            PayloadType: 'SPOF'
+            PayloadScope: 'SPOF'
+            PayloadRisk: 'Medium'
+            PayloadNameregister: <ServiceName>
+            PayloadMetaData: "{'$type': 'EV2Rollout', 'Environment': 'global','RolloutSpecName':'<EV2serviceGroupName>' }"
