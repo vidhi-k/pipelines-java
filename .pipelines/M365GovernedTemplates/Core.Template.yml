@@ -1,0 +1,459 @@
+parameters:
+  - name: stages
+    type: stageList
+    default: []
+
+  - name: versioning
+    type: object
+    default: {}
+
+  - name: reddog
+    type: object
+    default: {}
+  
+  - name: cloudvault
+    type: object
+    default: {}
+  
+  - name: nugetPublishing
+    type: object
+    default: {}
+
+  - name: upackPublishing
+    type: object
+    default: {}
+
+  - name: globalSdl
+    type: object
+    default: {}
+
+  - name: git
+    type: object
+    default: {}
+
+  - name: onebranchToolsetTag
+    type: string
+    default: ""
+
+  - name: useTestSdlExtension
+    type: boolean
+    default: false
+
+  - name: retryWatcher
+    type: object
+    default: {}
+
+  - name: featureFlags # experimental features
+    type: object
+    default: {}
+
+  - name: customTags
+    type: string
+    default: ""
+  
+  - name: isOfficial
+    type: string
+    default: ''
+
+  - name: platform
+    type: object
+
+  - name: mainPool
+    type: object
+
+  - name: containers
+    type: object
+    default: 
+    - container: windows_build_container
+      image: $(WindowsContainerImage)
+      type: Windows
+    - container: windows_build_container2
+      image: $(WindowsContainerImage2)
+      type: Windows
+    - container: linux_build_container
+      image: $(LinuxContainerImage)
+      type: Linux
+    - container: linux_build_container2
+      image: $(LinuxContainerImage2)
+      type: Linux
+    
+resources:
+  containers:
+  - ${{ each container in parameters.containers }}:
+    - ${{ if ne(container.image, '') }}:
+      - container: ${{ container.container }}
+        image: ${{ container.image }}
+        ${{ if ne(container.endpoint, '') }}:
+          endpoint: ${{ container.endpoint }}
+
+        ${{ if eq(container.type, 'Windows') }}:
+          ${{ if eq(parameters.featureFlags.WindowsHostVersion, '1ESWindows') }}:
+            options: --cpu-count 16 --memory 64g
+          ${{ if eq(parameters.featureFlags.WindowsHostVersion, '1ESWindows-D32') }}:
+            options: --cpu-count 32 --memory 128g
+          ${{ if eq(parameters.featureFlags.useHyperV, 'true') }}:
+            options: --isolation hyperv --cpu-count 16 --memory 60g
+          mountReadOnly:
+            externals: true
+          volumes:
+          - c:\obtools_host:c:\obtools_container:ro
+          env:
+            Use_Isolation: true
+
+        ${{ if eq(container.type, 'Linux') }}:
+          mapDockerSocket: false
+          mountReadOnly:
+            externals: true
+          volumes:
+            - $(Agent.WorkFolder)/telemetry:/__w/telemetry:rw
+            - /mnt/obtools_host:/mnt/obtools_container:ro
+            - ${{ if eq( parameters.featureFlags.mariner.extraMounts, 'true') }}:
+              - ${{ each number in parameters.featureFlags.mariner.chrootSuffixes }}:
+                - /dev:${{parameters.featureFlags.mariner.chroot}}${{ number }}/dev:ro
+                - /proc:${{parameters.featureFlags.mariner.chroot}}${{ number }}/proc:ro
+                - devpts:${{parameters.featureFlags.mariner.chroot}}${{ number }}/dev/pts:ro
+                - sysfs:${{parameters.featureFlags.mariner.chroot}}${{ number }}/sys:ro
+                - $(Agent.WorkFolder)/mariner/out/RPMS/noarch:${{parameters.featureFlags.mariner.chroot}}${{ number }}/localrpms/noarch:rw
+                - $(Agent.WorkFolder)/mariner/out/RPMS/x86_64:${{parameters.featureFlags.mariner.chroot}}${{ number }}/localrpms/x86_64:rw
+                - $(Agent.WorkFolder)/mariner/out/RPMS/aarch64:${{parameters.featureFlags.mariner.chroot}}${{ number }}/localrpms/aarch64:rw
+                - $(Agent.WorkFolder)/mariner/build/rpm_cache/cache:${{parameters.featureFlags.mariner.chroot}}${{ number }}/upstream-cached-rpms:rw
+                - $(Agent.WorkFolder)/mariner:/tmp/mariner:rw
+
+  - container: windows_onebranch_container
+    ${{ if eq(parameters.featureFlags.OneBranch_Windows_Image_Version, 'obinfra_1809') }}: # https://onebranch.visualstudio.com/DefaultCollection/Support/_workitems/edit/141229
+      image: "cdpxwin1809.azurecr.io/global/obinfra/windows/1809/vs2019:latest"
+    ${{ else }}:
+      image: "cdpxwin1809.azurecr.io/global/vse2019:latest"
+    ${{ if eq(parameters.featureFlags.WindowsHostVersion, '1ESWindows') }}:
+      options: --cpu-count 16 --memory 16g
+    ${{ if eq(parameters.featureFlags.WindowsHostVersion, '1ESWindows-D32') }}:
+      options: --cpu-count 32 --memory 32g
+    volumes:
+    - c:\obtools_host:c:\obtools_container:rw
+    - c:\ob_dotnet:c:\__t\dotnet:rw
+    - c:\ob_gdn\gdnp:c:\__w\_gdn\gdnp:rw
+    - c:\ob_gdn\packages:c:\__w\_gdn\packages:rw
+    - c:\ob_gdn\tools:c:\__w\_gdn\tools:rw
+    - c:\ob_gdn\versions:c:\__w\_gdn\versions:rw
+    env:
+      Use_Isolation: true
+  - container: windows_onebranch_container_signing
+    image: "mcr.microsoft.com/dotnet/framework/sdk@sha256:ebe68dac477264281193abf8f11924518cb0e0b222b66a6211d1d68b4138b3ef"
+    ${{ if eq(parameters.featureFlags.WindowsHostVersion, '1ESWindows') }}:
+      options: --cpu-count 16 --memory 16g
+    ${{ if eq(parameters.featureFlags.WindowsHostVersion, '1ESWindows-D32') }}:
+      options: --cpu-count 32 --memory 32g
+    volumes:
+    - c:\obtools_host:c:\obtools_container:rw
+    - c:\ob_dotnet:c:\__t\dotnet:rw
+    - c:\ob_gdn\gdnp:c:\__w\_gdn\gdnp:rw
+    - c:\ob_gdn\packages:c:\__w\_gdn\packages:rw
+    - c:\ob_gdn\tools:c:\__w\_gdn\tools:rw
+    - c:\ob_gdn\versions:c:\__w\_gdn\versions:rw
+    env:
+      Use_Isolation: true
+  - container: linux_onebranch_container
+    image: onebranch.azurecr.io/linux/ubuntu-1804:latest
+    volumes:
+      - $(Agent.WorkFolder)/telemetry:/__w/telemetry:rw
+      - /mnt/obtools_host:/mnt/obtools_container:rw
+  - container: linux_onebranch_signing_container
+    image: onebranch.azurecr.io/linux/ubuntu-1804:latest
+    volumes:
+      - $(Agent.WorkFolder)/telemetry:/__w/telemetry:rw
+      - /mnt/obtools_host:/mnt/obtools_container:rw
+  
+  - ${{ if eq(containsValue(parameters.stages.*.jobs.*.pool.hostArchitecture, 'arm64'), true) }}:
+    - container: linux_arm64_onebranch_container
+      image: onebranch.azurecr.io/linux/ubuntu-2004-arm64:latest
+      volumes:
+        - $(Agent.WorkFolder)/telemetry:/__w/telemetry:rw
+        - /mnt/obtools_host:/mnt/obtools_container:rw
+    - container: linux_arm64_onebranch_signing_container
+      image: onebranch.azurecr.io/linux/ubuntu-2004-arm64:latest
+      volumes:
+        - $(Agent.WorkFolder)/telemetry:/__w/telemetry:rw
+        - /mnt/obtools_host:/mnt/obtools_container:rw
+
+stages:
+  # allow to run alpha and beta task versions on onebranch account only
+  - ${{ if and( ne(variables['System.TeamProjectId'], 'c978ac10-fc79-4879-9a73-42adb531be5f'), ne(parameters.onebranchToolsetTag, '') ) }}: 
+    - 'onebranchToolsetTag is not supported for the current instance': error
+
+  - ${{ if and(ne(parameters.globalSdl.policy, ''), ne(parameters.globalSdl.policy, 'Microsoft'), ne(parameters.globalSdl.policy, 'M365') ) }}:
+    - 'SDL Policy ${{ parameters.globalSdl.policy }} is not supported. Supported types: Microsoft, M365. Default is Microsoft': error
+
+################# SOURCE ANALYSIS STAGE START ############################################################
+  # include source_analysis stage if there are no any stages (probably set to run only for SDL analysis of the repository)
+  # include source_analysis stage only if there are jobs with linux, windows, docker and gitPushVersion types
+  - ${{ if or(eq(length(parameters.stages), 0), eq(containsValue(parameters.stages.*.jobs.*.pool.type, 'windows'), true), eq(containsValue(parameters.stages.*.jobs.*.pool.type, 'linux'), true), eq(containsValue(parameters.stages.*.jobs.*.pool.type, 'docker'), true), eq(containsValue(parameters.stages.*.jobs.*.pool.type, 'gitPushVersion'), true)) }}:
+    - ${{ if eq(coalesce(parameters.isOfficial, parameters.globalSdl.sourcesAnalysisStage.enabled, 'true'), 'true') }}:
+      - template: Stages/SDL.SourceAnalysis.Stage.yml
+        parameters:
+          stages: ${{ parameters.stages }}
+          globalSdl: ${{ parameters.globalSdl }}
+          git: ${{ parameters.git }}
+          onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+          useTestSdlExtension: ${{ parameters.useTestSdlExtension }}
+          featureFlags: ${{ parameters.featureFlags }}
+          isOfficial: ${{ parameters.isOfficial }}
+          platform: ${{ parameters.platform }}
+          mainPool: ${{ parameters.mainPool }}
+          targets:
+            generic: windows_onebranch_container
+
+################# SOURCE ANALYSIS STAGE END ##############################################################
+
+############### BUILD/TEST STAGES #######################################################
+  - ${{ each stage in parameters.stages }}:
+    - ${{ if eq(containsValue(stage.jobs.*.pool.type, 'release'), false)}}:  
+      - stage: ${{ stage.stage }}
+        ${{ if ne(stage.displayName, '') }}:
+          displayName: ${{ stage.displayName }}
+        ${{ if ne(join(stage.dependsOn, ','), '') }}:
+          dependsOn: ${{ stage.dependsOn }}
+        ${{ if ne(stage.condition, '') }}:
+          condition: ${{ stage.condition }}
+        ${{ if ne(stage.variables, '') }}:
+          variables: ${{ stage.variables }}
+
+        jobs:
+        - ${{ each job in stage.jobs }}:
+          - ${{ if and(ne(job.pool.type, 'windows'), ne(job.pool.type, 'linux'), ne(job.pool.type, 'cloudTestAgentless'), ne(job.pool.type, 'docker'), ne(job.pool.type, 'gitPushVersion'), ne(job.pool.type, 'release' )) }}:
+            - 'Job type pool type ${{ job.pool.type }} is not supported. Supported types: windows, linux, cloudTestAgentless, docker, gitPushVersion, release': error
+
+          - ${{ if eq(job.pool.type, 'windows') }}:
+            - ${{ if eq(job.pool.isCustom, 'true') }}:
+                template: Jobs/Windows.Custom.Job.yml
+              ${{ elseif eq(parameters.isOfficial, 'true') }}:
+                template: Jobs/Windows.Official.Job.yml
+              ${{ else }}:
+                template: Jobs/Windows.NonOfficial.Job.yml
+              parameters:
+                parentStage: ${{ stage.stage }}
+                job: ${{ job }}
+                git: ${{ parameters.git }}
+                versioning: ${{ parameters.versioning }}
+                reddog: ${{ parameters.reddog }}
+                cloudvault: ${{ parameters.cloudvault }}
+                nugetPublishing: ${{ parameters.nugetPublishing }}
+                upackPublishing: ${{ parameters.upackPublishing }}
+                globalSdl: ${{ parameters.globalSdl }}
+                featureFlags: ${{ parameters.featureFlags }}
+                ${{ if ne(parameters.useTestSdlExtension, 'true') }}:
+                  sdlExtensionPrefix: securedevelopmentteam.vss-secure-development-tools
+                ${{ if eq(parameters.useTestSdlExtension, 'true') }}:
+                  sdlExtensionPrefix: ms-secdevops-test.vss-secure-development-tools-test
+                onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+                customTags: ${{ parameters.customTags }}
+                mainPool: ${{ parameters.mainPool }}
+                containers: ${{ parameters.containers }}
+                ${{ if eq(job.pool.isCustom, 'true') }}:
+                  isOfficial: ${{ parameters.isOfficial }}
+                targets:
+                  generic: windows_onebranch_container
+                  signing: windows_onebranch_container_signing
+
+          - ${{ if eq(job.pool.type, 'gitPushVersion') }}:
+            - template: Jobs/Windows.GitPushVersion.Job.yml
+              parameters:
+                versioning: ${{ parameters.versioning }}
+                job: ${{job}}
+                onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+                featureFlags: ${{ parameters.featureFlags }}
+                ${{ if eq(parameters.isOfficial, 'true') }}:
+                  buildType: Official
+                ${{ if ne(parameters.isOfficial, 'true') }}:
+                  buildType: Buddy
+                containers: ${{ parameters.containers }}
+
+  ################# LINUX BUILD JOBS START #############################################################
+          - ${{ if eq(job.pool.type, 'linux') }}:
+            - ${{ if eq(job.pool.isCustom, 'true') }}:
+                template: Jobs/Linux.Custom.Job.yml
+              ${{ elseif eq(parameters.isOfficial, 'true') }}:
+                template: Jobs/Linux.Official.Job.yml
+              ${{ else }}:
+                template: Jobs/Linux.NonOfficial.Job.yml
+              parameters:
+                parentStage: ${{ stage.stage }}
+                job: ${{ job }}
+                git: ${{ parameters.git }}
+                globalSdl: ${{ parameters.globalSdl }}
+                onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+                featureFlags: ${{ parameters.featureFlags }}
+                ${{ if ne(parameters.useTestSdlExtension, 'true') }}:
+                  sdlExtensionPrefix: securedevelopmentteam.vss-secure-development-tools
+                ${{ if eq(parameters.useTestSdlExtension, 'true') }}:
+                  sdlExtensionPrefix: ms-secdevops-test.vss-secure-development-tools-test
+                customTags: ${{ parameters.customTags }}
+                mainPool: ${{ parameters.mainPool }}
+                containers: ${{ parameters.containers }}
+                ${{ if eq(job.pool.isCustom, 'true') }}:
+                  isOfficial: ${{ parameters.isOfficial }}
+                targets:
+                  ${{ if eq(job.pool.hostArchitecture, 'arm64') }}:
+                    generic: linux_arm64_onebranch_container
+                    signing: linux_arm64_onebranch_signing_container
+                  ${{ else }}:
+                    generic: linux_onebranch_container
+                    signing: linux_onebranch_signing_container
+
+
+  ################# LINUX BUILD JOBS END ################################################################
+
+  ################# CLOUDTEST AGENTLESS START ###########################################################
+          - ${{ if eq(job.pool.type, 'cloudtestagentless') }}:
+            - template: Jobs/CloudTest.Agentless.Job.yml
+              parameters:
+                cloudtestagentlessjob: ${{ job }}
+  ################# CLOUDTEST AGENTLESS END #############################################################
+
+  ################# DOCKER BUILD JOBS START #############################################################
+          - ${{ if eq(job.pool.type, 'docker') }}:
+            - template: Jobs/Docker.Job.yml
+              parameters:
+                parentStage: ${{ stage.stage }}
+                jobInfo: ${{ job }}
+                cloudvault: ${{ parameters.cloudvault }}
+                ${{ if eq(parameters.isOfficial, 'true') }}:
+                  buildType: Official
+                  isOfficial: true
+                ${{ if ne(parameters.isOfficial, 'true') }}:
+                  buildType: Buddy
+                  isOfficial: false
+                onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+                globalSdl: ${{ parameters.globalSdl }}
+                git: ${{ parameters.git }}
+                featureFlags: ${{ parameters.featureFlags }}
+                mainPool: ${{ parameters.mainPool }}
+                ${{ if ne(parameters.useTestSdlExtension, 'true') }}:
+                  sdlExtensionPrefix: securedevelopmentteam.vss-secure-development-tools
+                ${{ if eq(parameters.useTestSdlExtension, 'true') }}:
+                  sdlExtensionPrefix: ms-secdevops-test.vss-secure-development-tools-test
+                ${{ if eq(job.pool.os, 'linux') }}:
+                  isLinux: true
+                  ${{ if eq(job.pool.hostArchitecture, 'arm64') }}:
+                    targets:
+                      generic: linux_arm64_onebranch_container
+                      signing: linux_arm64_onebranch_signing_container
+                  ${{ else }}:
+                    targets:
+                      generic: linux_onebranch_container
+                      signing: linux_onebranch_signing_container
+                ${{ else }}:
+                  targets:
+                    generic: windows_onebranch_container
+                    signing: windows_onebranch_container_signing
+
+################# DOCKER BUILD JOBS END ################################################################
+
+############### RELEASE STAGES START##################################################################
+
+  - ${{ each stage in parameters.stages }}:
+      - ${{ if or(containsValue(stage.jobs.*.pool.type, 'release'), containsValue(stage.jobs.*.pool.type, 'server')) }}:
+        - ${{ if eq(parameters.isOfficial, 'true') }}:
+            template: Stages/Release.Prod.Stage.yml
+          ${{ if ne(parameters.isOfficial, 'true') }}:
+            template: Stages/Release.NonProd.Stage.yml
+          parameters:
+            stage: ${{ stage }}
+            featureFlags: ${{ parameters.featureFlags }}
+            platform: ${{parameters.platform}}
+            onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+
+############### RELEASE STAGES END  ##################################################################
+
+################# SDL STAGE START ##################################################################
+  - ${{ if eq(coalesce(parameters.globalSdl.runmode, 'buildtime'), 'stage') }}:
+    - ${{ each stage in parameters.stages }}:
+      - ${{ if and(eq(parameters.isOfficial, 'true'), containsValue(coalesce(parameters.globalSdl.skipSdlStageForUserStages, ''), stage.stage))}}:
+        - 'Parameter skipSdlStageForUserStages cannot be used in an official build.': error
+      - ${{ if or(eq(parameters.isOfficial, 'true'), not(containsValue(coalesce(parameters.globalSdl.skipSdlStageForUserStages, ''), stage.stage))) }}:
+        - ${{ if or(containsValue(stage.jobs.*.pool.type, 'windows'), containsValue(stage.jobs.*.pool.type, 'linux')) }}:
+          - template: Stages/SDL.BinaryAnalysis.Stage.yml
+            parameters:
+              stage: ${{ stage }}
+              globalSdl: ${{ parameters.globalSdl }}
+              git: ${{ parameters.git }}
+              onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+              useTestSdlExtension: ${{ parameters.useTestSdlExtension }}
+              featureFlags: ${{ parameters.featureFlags }}
+              isOfficial: ${{ parameters.isOfficial }}
+              platform: ${{ parameters.platform }}
+              mainPool: ${{ parameters.mainPool }}
+
+################# SDL STAGE START ##################################################################
+
+################# SDL ASYNC JOB START ##################################################################
+  - ${{ if eq(parameters.globalSdl.asyncSdl.enabled, true) }}:
+    - ${{ each stage in parameters.stages }}:
+      - ${{ if or(eq(join(';', parameters.globalSdl.asyncSdl.forStages), ''), containsValue(parameters.globalSdl.asyncSdl.forStages, stage.stage)) }}:
+        - template: Stages/SDL.Async.BinaryAnalysis.Stage.yml
+          parameters:
+            stage: ${{ stage }}
+            globalSdl: ${{ parameters.globalSdl }}
+            git: ${{ parameters.git }}
+            onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+            useTestSdlExtension: ${{ parameters.useTestSdlExtension }}
+            featureFlags: ${{ parameters.featureFlags }}
+            isOfficial: ${{ parameters.isOfficial }}
+            platform: ${{ parameters.platform }}
+            mainPool: ${{ parameters.mainPool }}
+################# SDL ASYNC JOB END ##################################################################
+
+################# REDDOG STAGE START ####################################################################
+  - ${{ if and(eq(parameters.reddog.enabled, true), eq(coalesce(parameters.reddog.runmode, 'buildtime'), 'stage')) }}:
+    - template: Stages/ReddogUpload.Stage.yml
+      parameters:
+        stages: ${{ parameters.stages }}
+        featureFlags: ${{ parameters.featureFlags }}
+        reddog: ${{ parameters.reddog }}
+        onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+        isOfficial: ${{ parameters.isOfficial }}
+        platform: ${{ parameters.platform }}
+        mainPool: ${{ parameters.mainPool }}
+
+################# REDDOG STAGE END ####################################################################
+
+################# SEPARATE STAGE CLOUDVAULT STAGE START ###################################################
+  - ${{ if and(eq(parameters.cloudvault.enabled, true), eq(coalesce(parameters.cloudvault.runmode, 'buildtime'), 'stage')) }}:
+    - template: Stages/CloudVaultUpload.Stage.yml
+      parameters:
+        stages: ${{ parameters.stages }}
+        featureFlags: ${{ parameters.featureFlags }}
+        globalSdl: ${{ parameters.globalSdl }}
+        cloudvault: ${{ parameters.cloudvault }}
+        onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+        isOfficial: ${{ parameters.isOfficial }}
+        platform: ${{ parameters.platform }}
+        mainPool: ${{ parameters.mainPool }}
+################# SEPARATE STAGE CLOUDVAULT STAGE END ###################################################
+
+################# SEPARATE STAGE RETRIER START ###################################################
+  - ${{ if eq(parameters.retryWatcher.enabled, true) }}:
+    - template: Stages/RetryWatcher.Stage.yml
+      parameters:
+        retryWatcher: ${{ parameters.retryWatcher }}
+        ${{ if eq(parameters.isOfficial, 'true') }}:
+          buildType: Official
+        ${{ if ne(parameters.isOfficial, 'true') }}:
+          buildType: Buddy
+        onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+        featureFlags: ${{ parameters.featureFlags }}
+
+################# SEPARATE STAGE RETRIER END ###################################################
+
+################# M365 START ###################################################
+  - ${{ if eq(coalesce(parameters.globalSdl.policy, 'Microsoft'), 'M365') }}:
+    - template: Stages/M365.AfterBuild.Stage.yml
+      parameters:
+        stages: ${{ parameters.stages }}
+        ${{ if eq(parameters.isOfficial, 'true') }}:
+          buildType: Official
+        ${{ if ne(parameters.isOfficial, 'true') }}:
+          buildType: Buddy
+        onebranchToolsetTag: ${{ parameters.onebranchToolsetTag }}
+        featureFlags: ${{ parameters.featureFlags }}
+        globalSdl: ${{ parameters.globalSdl }}
+################# M365 END #####################################################

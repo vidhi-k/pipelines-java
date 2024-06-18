@@ -1,0 +1,17 @@
+trigger: none
+
+jobs:
+
+- job: PublishArtifacts
+  pool: 
+    vmImage: windows-latest 
+  steps:
+  - task: PowerShell@2
+    displayName: 'Set Ev2 service artifacts version for model D2 RS artifacts'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $(Build.BuildNumber) | Out-File "$(Build.SourcesDirectory)\ValidationArtifacts\CosmicRS\ServiceGroupRoot\buildver.txt" -Encoding ascii
+
+  - publish: '$(Build.SourcesDirectory)\ValidationArtifacts'
+    artifact: 'drop'

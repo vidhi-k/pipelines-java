@@ -1,0 +1,60 @@
+trigger: none
+
+schedules:
+- cron: '0 0 * * *'
+  displayName: Daily midnight build
+  branches:
+    include:
+    - master
+  always: true
+    
+resources:
+  repositories:
+  - repository: GovernedTemplates
+    type: git
+    name: OneBranch.Pipelines/GovernedTemplates
+    ref: refs/heads/main
+
+  pipelines:
+  - pipeline: PrimaryArtifact
+    source: "ControlPlane Official Incremental Build Drops Pipeline (yaml)"
+    branch: "master"
+    project: "O365 Core"
+
+extends:
+  template: v2/Microsoft.NonOfficial.yml@GovernedTemplates
+  parameters:
+    platform:
+      name: m365
+      workload: Substrate
+      serviceTreeId: '28a2529f-7085-4bbf-aa02-787135bb26a8'
+      serviceGroupName: "GriffinEv2Samples"
+    featureFlags: 
+      enableCheckout: true
+    stages:
+      - stage: 'Test_GriffinAzureEv2Sample'
+        variables:
+          stage_type: deployment
+          azure_subscription_id: "1467f0f0-5547-4c1d-86d1-3d58b300ec53"
+        jobs:
+          - job: ReleaseJob
+            pool:
+              type: release
+            steps:
+              - download: PrimaryArtifact
+              - task: artifactDropDownloadTask@0
+                inputs:
+                  dropMetadataContainerName: DropMetaData
+                  rootPaths: '/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+                  usePat: false
+              - task: prepare-deployment@1
+                env:
+                  ServiceTreeId: '28a2529f-7085-4bbf-aa02-787135bb26a8'
+                  ServiceGroupName: "GriffinEv2Samples"
+                inputs:
+                  taskType: 'setupLockboxAuthzVariables'
+              - task: ExpressV2Internal@1
+                inputs:
+                  EndpointProviderType: 'LockboxService'
+                  ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+                  RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/RolloutSpec.Test.json'

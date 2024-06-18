@@ -1,0 +1,88 @@
+
+trigger: none
+
+resources:
+  repositories:
+    - repository: GovernedTemplates
+      type: git
+      name: OneBranch.Pipelines/GovernedTemplates
+      ref: refs/heads/main
+
+  pipelines:
+  - pipeline: PrimaryArtifact
+    source: "ControlPlane Official Mainline Build Drops Pipeline" #The name of build pipeline producing artifacts
+    branch: "master"
+
+variables:
+- group: Testvariables
+
+extends:
+  template: v2/Microsoft.Official.yml@GovernedTemplates
+  parameters:
+    platform:
+      name: m365
+      workload: Substrate
+      serviceTreeId: '28a2529f-7085-4bbf-aa02-787135bb26a8'
+      serviceGroupName: "GriffinEv2Samples"    
+    
+    stages:
+    # Gcc Deployment
+    - stage: 'Gcc_Deploy'  
+      dependsOn: []
+      displayName: 'Deploy service to Gcc'
+      variables:
+        stage_type: deployment
+        azure_subscription_ids: "02009017-54b8-4056-9f06-ac47abecd548"
+      jobs:
+      - job: ReleaseJob
+        pool:
+          type: release
+        steps:
+          - download: PrimaryArtifact
+          - task: artifactDropDownloadTask@0
+            displayName: 'Download from Artifact Services Drop'
+            inputs:
+              dropMetadataContainerName: 'DropMetaData'
+              destinationPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/'
+              rootPaths: '/_manifest/;/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+              usePat: false
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'LockboxService'
+              ServiceRootPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+              RolloutSpecPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample//RolloutSpec.TrailBlazer.json'
+              InlineDynamicBindingOverrides: ''   
+
+    # Dod Deployment        
+    - stage: 'Dod_Deploy'  
+      dependsOn: []
+      displayName: 'Deploy service to Dod'
+      variables:
+        stage_type: deployment
+        azure_subscription_ids: "02009017-54b8-4056-9f06-ac47abecd548"
+      jobs:
+      - job: ReleaseJob
+        pool:
+          type: release
+        steps:
+          - download: PrimaryArtifact
+          - task: artifactDropDownloadTask@0
+            displayName: 'Download from Artifact Services Drop'
+            inputs:
+              dropMetadataContainerName: 'DropMetaData'
+              destinationPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/'
+              rootPaths: '/_manifest/;/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+              usePat: false
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'LockboxService'
+              ServiceRootPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+              RolloutSpecPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample//RolloutSpec.TrailBlazer.json'
+              InlineDynamicBindingOverrides: ''           
+
+
+
+
+

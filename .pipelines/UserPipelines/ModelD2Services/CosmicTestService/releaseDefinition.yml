@@ -1,0 +1,365 @@
+# Cosmic test service release pipeline using YAML
+
+trigger: none
+
+resources:
+  # repositories:
+  #   - repository: OneBranchTemplates
+  #     type: git
+  #     name: OneBranch.Pipelines/GovernedTemplates
+  #     ref: refs/heads/main
+
+  repositories:
+    - repository: Test
+      type: git
+      name: DeploymentStd1B
+      ref: users/aaagrawal/cosmicUserPipeline
+
+#variables:
+#   artifact_to_download: 'drop_CosmicArtifact_CosmicArtifactJob'
+#   targetPath: 'drop'
+  # poolName: OneBranchPipelines #OneBranchReleaseProd
+  # poolAgentSpec: M365Compliance #M365Compliance #M365ComplianceProd
+
+extends:
+  #template: v2/Microsoft.NonOfficial.yml@OneBranchTemplates
+  template: .pipelines/M365GovernedTemplates/M365.NonOfficial.Release.yml@Test
+  #template: .pipelines/M365GovernedTemplates/Microsoft.NonOfficial.yml@Test
+  parameters:
+    platform:
+      name: m365
+      serviceTreeId: "28a2529f-7085-4bbf-aa02-787135bb26a8"
+    #serviceTreeId: "28a2529f-7085-4bbf-aa02-787135bb26a8"
+    stages:
+    #Defining inline script which will be substituted by the new ADO task
+    - stage: 'PROD_CosmicSetup'
+      displayName: 'CosmicSetup'
+      jobs:
+      - job: SetupCosmicPipelineVariables
+        pool: 
+          #name: Release-Pool-Public
+          #name: ${{variables.poolName}} #OneBranchPipelines
+          #agentPooltype: ${{variables.poolAgentSpec}} #M365Compliance
+          type: release
+        steps:
+          # - task: DownloadPipelineArtifact@2
+          #   inputs:
+          #     buildType: 'specific'
+          #     project: '959adb23-f323-4d52-8203-ff34e5cbeefa'
+          #     definition: '16178'
+          #     #buildVersionToDownload: 'latest'
+          #     buildVersionToDownload: 'latestFromBranch'
+          #     branchName: 'refs/heads/master' # branch from which build needs to be taken
+          #     allowPartiallySucceededBuilds: true
+          #     # buildVersionToDownload: 'specific'
+          #     #pipelineId: '7677305'
+          #     targetPath: drop
+          #     artifactName: 'drop_CosmicArtifact_CosmicArtifactJob'
+          - task: artifactDropDownloadTask@0
+            inputs:
+              dropServiceURI: 'https://o365exchange.artifacts.visualstudio.com/DefaultCollection'
+              destinationPath: '$(System.DefaultWorkingDirectory)\drop'
+              buildNumber: 'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01952.554/8316228'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01944.109/8246799'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01943.108/8232837' service model fix - 1
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01939.518/8180804'
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01909.435/7893715'
+          - task: PowerShell@2
+            name: SetVar
+            inputs:
+              targetType: 'inline'
+              script: |
+                #Script to setup cosmic variables
+                
+                $deploymentParameters = Get-Childitem "drop" -Recurse -Filter 'ModelService-deployment-parameters.json' | Get-Content | ConvertFrom-Json
+              
+                $testpath = Get-ChildItem -Path $System.ArtifactsDirectory -Filter ModelService-deployment-parameters.json -Recurse | %{$_.FullName}
+                Write-Host $testpath
+                Write-Host $deploymentParameters
+                
+                $SourceImages = $($deploymentParameters.SourceImages)
+                $CatalogHash = $($deploymentParameters.CatalogHash)
+                $BuildNumber = $($deploymentParameters.BuildNumber)
+                
+                # Write variables to be used in Ev2 task on same phase
+                write-host "##vso[task.setvariable variable=sourceImages;isOutput=true]$SourceImages"
+                write-host "##vso[task.setvariable variable=catalogHash;isOutput=true]$CatalogHash"
+                write-host "##vso[task.setvariable variable=VersionToDeploy;isOutput=true]$BuildNumber"
+                
+                Write-Host $SourceImages
+                Write-Host $CatalogHash
+                Write-Host $VersionToDeploy
+
+          - script: |
+              echo $(SetVar.SourceImages) 
+              echo $(SetVar.CatalogHash) 
+              echo $(SetVar.VersionToDeploy) 
+
+    - stage: 'PROD_TestRelease'      
+      displayName: 'Deploy service to TEST ring'
+      dependsOn: PROD_CosmicSetup
+      variables:
+        #azure_subscription_id: "ff5bfe84-dc63-4b4c-ad36-2324ae8480ad" 
+        azure_subscription_id: "1962e577-e475-4143-ae6d-6dbddf43e670"
+        namespace_ring_json: '[{"Ring": "TEST", "Namespace": "cosmic-platform-test" }]'
+        SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        pool:
+          #name: Release-Pool-Public 
+          #name: ${{variables.poolName}} #OneBranchPipelines
+          #agentPooltype: ${{variables.poolAgentSpec}} #M365Compliance
+          type: release
+        steps:
+          # - task: DownloadPipelineArtifact@2
+          #   inputs:
+          #     buildType: 'specific'
+          #     project: '959adb23-f323-4d52-8203-ff34e5cbeefa'
+          #     definition: '16178'
+          #     buildVersionToDownload: 'latestFromBranch'
+          #     branchName: 'refs/heads/master' # branch from which build needs to be taken
+          #     allowPartiallySucceededBuilds: true
+          #     targetPath: drop #'$(System.ArtifactsDirectory)'
+          #     artifactName: 'drop_CosmicArtifact_CosmicArtifactJob'
+          - script: |
+              echo $(SourceImages) 
+              echo $(CatalogHash) 
+              echo $(VersionToDeploy) 
+              echo $(namespace_ring_json)
+          - task: artifactDropDownloadTask@0
+            inputs:
+              dropServiceURI: 'https://o365exchange.artifacts.visualstudio.com/DefaultCollection'
+              destinationPath: '$(System.DefaultWorkingDirectory)\drop'
+              buildNumber: 'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01952.554/8316228'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01944.109/8246799'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01943.108/8232837'
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01939.518/8180804'
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01909.435/7893715'
+          - script:
+              echo $(JWT_cosmic-platform-test_TEST)
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'Ev2Endpoint'
+              ServiceRootLocation: 'LinkedArtifact'
+              RolloutSpecType: 'RSPath'
+              ConnectedServiceName: 'Ev2-M365-1B-Public-Placeholder-Endpoint-TestInfra'
+              # #' Ev2-Public-Placeholder-Endpoint-TestInfra' #'Ev2-M365-1B-Public-Placeholder-Endpoint-TestInfra'
+              ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/modelService'
+              RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/modelService/cosmicplatformtest-test-onebranch.rolloutspec.json'
+              #cosmicplatformtest.rolloutspec.json #cosmicplatformtest-eastus-01-test.rolloutspec.json' 
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_TEST)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d01"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "test"           }  ]       }   ] }  '
+
+              #InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_TEST)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d01"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }  ]       }   ] }  '
+
+#***************************************************************************************Test stage complete**************************************************************************************
+    # - stage: 'PROD_TestReleaseParallel'      
+    #   displayName: 'Deploy service to TEST ring'
+    #   dependsOn: PROD_CosmicSetup
+    #   variables:
+    #     #azure_subscription_id: "ff5bfe84-dc63-4b4c-ad36-2324ae8480ad" 
+    #     azure_subscription_id: "1962e577-e475-4143-ae6d-6dbddf43e670"
+    #     namespace_ring_json: '[{"Ring": "TEST", "Namespace": "cosmic-platform-test" }]'
+    #     SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+    #     CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+    #     VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+    #   jobs:
+    #   - job: ReleaseJob
+    #     pool:
+    #       #name: Release-Pool-Public 
+    #       name: OneBranchPipelines
+    #       agentPooltype: M365Compliance
+    #       type: release
+    #     steps:
+    #       # - task: DownloadPipelineArtifact@2
+    #       #   inputs:
+    #       #     buildType: 'specific'
+    #       #     project: '959adb23-f323-4d52-8203-ff34e5cbeefa'
+    #       #     definition: '16178'
+    #       #     buildVersionToDownload: 'latestFromBranch'
+    #       #     branchName: 'refs/heads/master' # branch from which build needs to be taken
+    #       #     allowPartiallySucceededBuilds: true
+    #       #     targetPath: drop #'$(System.ArtifactsDirectory)'
+    #       #     artifactName: 'drop_CosmicArtifact_CosmicArtifactJob'
+    #       - script: |
+    #           echo $(SourceImages) 
+    #           echo $(CatalogHash) 
+    #           echo $(VersionToDeploy) 
+    #           echo $(namespace_ring_json)
+    #       - task: artifactDropDownloadTask@0
+    #         inputs:
+    #           dropServiceURI: 'https://o365exchange.artifacts.visualstudio.com/DefaultCollection'
+    #           destinationPath: '$(System.DefaultWorkingDirectory)\drop'
+    #           buildNumber: 'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01939.518/8180804'
+    #           #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01909.435/7893715'
+    #       - task: ExpressV2Internal@1
+    #         displayName: 'Ev2 Deploy'
+    #         inputs:
+    #           EndpointProviderType: 'Ev2Endpoint'
+    #           ServiceRootLocation: 'LinkedArtifact'
+    #           RolloutSpecType: 'RSPath'
+    #           ConnectedServiceName: 'Ev2-M365-1B-Public-Placeholder-Endpoint-TestInfra' 
+    #           # #' Ev2-Public-Placeholder-Endpoint-TestInfra' #'Ev2-M365-1B-Public-Placeholder-Endpoint-TestInfra'
+    #           ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/modelService'
+    #           RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/modelService/cosmicplatformtest.rolloutspec.json' #cosmicplatformtest-eastus-01-test.rolloutspec.json' 
+    #           InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_TEST)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": ""},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d01"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }  ]       }   ] }  '
+
+
+    - stage: 'PROD_SDFRelease'
+      displayName: 'Deploy service to SDF ring'
+      dependsOn: 
+        - PROD_CosmicSetup
+        #- PROD_TestRelease
+      variables:
+        #azure_subscription_id: "ff5bfe84-dc63-4b4c-ad36-2324ae8480ad" #Same as TEST 
+        namespace_ring_json: '[{"Ring": "SDF","Namespace": "cosmic-platform-test" }]'
+        azure_subscription_id: "980c623c-e0a5-451b-a660-056c0d346231" # Checked for West US 2 in service model and subscription-metadat.json
+        SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        timeoutInMinutes: 150
+        pool: 
+          #name: Release-Pool-Public
+          #name: ${{variables.poolName}} #OneBranchPipelines
+          #agentPooltype: ${{variables.poolAgentSpec}} #M365Compliance
+          type: release
+        steps:
+          # - download: PrimaryArtifact
+          #   artifact: ${{variables.artifact_to_download}}
+          # - task: DownloadPipelineArtifact@2
+          #   inputs:
+          #     buildType: 'specific'
+          #     project: '959adb23-f323-4d52-8203-ff34e5cbeefa'
+          #     definition: '16178'
+          #     buildVersionToDownload: 'latestFromBranch'
+          #     branchName: 'refs/heads/master' # branch from which build needs to be taken
+          #     allowPartiallySucceededBuilds: true
+          #     targetPath: '$(System.ArtifactsDirectory)'
+          #     artifactName: 'drop_CosmicArtifact_CosmicArtifactJob'
+          - task: artifactDropDownloadTask@0
+            inputs:
+              dropServiceURI: 'https://o365exchange.artifacts.visualstudio.com/DefaultCollection'
+              destinationPath: '$(System.DefaultWorkingDirectory)\drop'
+              buildNumber: 'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01952.554/8316228'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01944.109/8246799'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01943.108/8232837'
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01909.435/7893715'
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'Ev2Endpoint'
+              ServiceRootLocation: 'LinkedArtifact'
+              RolloutSpecType: 'RSPath'
+              ConnectedServiceName: 'Ev2-Public-Placeholder-Endpoint'
+              ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/ModelService'
+              RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/ModelService/cosmicplatformtest-onebranch.rolloutspec.json'
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_SDF)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d02-01"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "sdf"           }  ]       }   ] }  '
+
+    - stage: 'PROD_MSITRelease'
+      displayName: 'Deploy service to MSIT ring'
+      dependsOn: 
+        - PROD_CosmicSetup
+        #- PROD_TestRelease
+        - PROD_SDFRelease
+      variables:
+        #azure_subscription_id: "ff5bfe84-dc63-4b4c-ad36-2324ae8480ad" #Same as TEST 
+        namespace_ring_json: '[{"Ring": "MSIT","Namespace": "cosmic-platform-test" }]'
+        azure_subscription_id: "9d6950e3-c9b3-4762-8fc9-9533416c4cdc" #d02-05 Checked for West US subscription-metadat.json 1659 line
+        SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        pool: 
+          #name: Release-Pool-Public
+          #name: ${{variables.poolName}} #OneBranchPipelines
+          #agentPooltype: ${{variables.poolAgentSpec}} #M365Compliance
+          type: release
+        steps:
+          # - download: PrimaryArtifact
+          #   artifact: ${{variables.artifact_to_download}}
+          # - task: DownloadPipelineArtifact@2
+          #   inputs:
+          #     buildType: 'specific'
+          #     project: '959adb23-f323-4d52-8203-ff34e5cbeefa'
+          #     definition: '16178'
+          #     buildVersionToDownload: 'latestFromBranch'
+          #     branchName: 'refs/heads/master' # branch from which build needs to be taken
+          #     allowPartiallySucceededBuilds: true
+          #     targetPath: '$(System.ArtifactsDirectory)'
+          #     artifactName: 'drop_CosmicArtifact_CosmicArtifactJob'
+          - task: artifactDropDownloadTask@0
+            inputs:
+              dropServiceURI: 'https://o365exchange.artifacts.visualstudio.com/DefaultCollection'
+              destinationPath: '$(System.DefaultWorkingDirectory)\drop'
+              buildNumber: 'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01944.109/8246799'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01943.108/8232837'
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01909.435/7893715'
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'Ev2Endpoint'
+              ServiceRootLocation: 'LinkedArtifact'
+              RolloutSpecType: 'RSPath'
+              ConnectedServiceName: 'Ev2-Public-Placeholder-Endpoint'
+              ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/ModelService'
+              RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/ModelService/cosmicplatformtest-atm-prod.rolloutspec.json'
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_MSIT)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d02-05"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "msit"           }  ]       }   ] }  '          
+
+    - stage: 'PROD_WWRelease'
+      displayName: 'Deploy service to WW ring'
+      dependsOn: 
+        - PROD_CosmicSetup
+        #- PROD_TestRelease
+        - PROD_SDFRelease
+        - PROD_MSITRelease
+      variables:
+        #azure_subscription_id: "ff5bfe84-dc63-4b4c-ad36-2324ae8480ad" #Same as TEST 
+        namespace_ring_json: '[{"Ring": "PROD","Namespace": "cosmic-platform-test" }]'
+        azure_subscription_id: "312defc5-5ba1-4c99-b515-ddbf3e0c1dcb" #d02-001 Checked for Central US (randomly) subscription-metadat.json 2930 line
+        SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        pool: 
+          #name: Release-Pool-Public
+          #name: ${{variables.poolName}} #OneBranchPipelines
+          #agentPooltype: ${{variables.poolAgentSpec}} #M365Compliance
+          type: release
+        steps:
+          # - download: PrimaryArtifact
+          #   artifact: ${{variables.artifact_to_download}}
+          # - task: DownloadPipelineArtifact@2
+          #   inputs:
+          #     buildType: 'specific'
+          #     project: '959adb23-f323-4d52-8203-ff34e5cbeefa'
+          #     definition: '16178'
+          #     buildVersionToDownload: 'latestFromBranch'
+          #     branchName: 'refs/heads/master' # branch from which build needs to be taken
+          #     allowPartiallySucceededBuilds: true
+          #     targetPath: '$(System.ArtifactsDirectory)'
+          #     artifactName: 'drop_CosmicArtifact_CosmicArtifactJob'
+          - task: artifactDropDownloadTask@0
+            inputs:
+              dropServiceURI: 'https://o365exchange.artifacts.visualstudio.com/DefaultCollection'
+              destinationPath: '$(System.DefaultWorkingDirectory)\drop'
+              buildNumber: 'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01944.109/8246799'
+              #b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01943.108/8232837'
+              #'o365 core/b678a9a4-2d5b-45c4-b86f-a1fcc95eb382/1.0.01909.435/7893715'
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'Ev2Endpoint'
+              ServiceRootLocation: 'LinkedArtifact'
+              RolloutSpecType: 'RSPath'
+              ConnectedServiceName: 'Ev2-Public-Placeholder-Endpoint'
+              ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/ModelService'
+              RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/ModelService/cosmicplatformtest.rolloutspec.json'
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_PROD)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d02-001"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "prod"           }  ]       }   ] }  '          
+
+

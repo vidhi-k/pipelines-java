@@ -1,0 +1,20 @@
+parameters:
+  - name: stages
+    type: stageList
+    default: []
+  
+  - name: serviceTreeId
+    type: string
+    default: ""
+
+
+stages:
+############### RELEASE STAGES START ##################################################################
+
+  - ${{ each stage in parameters.stages }}:
+      - template: Stages/M365/Release.NonProd.Stage.yml
+        parameters:
+          stage: ${{ stage }}
+          serviceTreeId: ${{parameters.serviceTreeId}}
+
+############### RELEASE STAGES END  ##################################################################

@@ -1,0 +1,31 @@
+
+parameters:
+- name: stage
+  type: stage  
+
+- name: featureFlags
+  type: object
+  default: {}
+
+- name: platform
+  type: object
+
+- name: onebranchToolsetTag
+  type: string
+
+stages:
+
+- ${{if eq(parameters.platform.name, 'onebranch') }} :
+    template: OneBranch/OneBranch.Release.NonProd.Stage.yml  
+    parameters:
+      stage: ${{parameters.stage}}
+      featureFlags: ${{parameters.featureFlags}}
+      onebranchToolsetTag: ${{parameters.onebranchToolsetTag}}
+      
+  ${{elseif eq(parameters.platform.name, 'm365') }} :
+    template: M365/Release.NonProd.Stage.yml
+    parameters:
+      stage: ${{parameters.stage}}
+      serviceTreeId: ${{parameters.platform.serviceTreeId}}
+      serviceGroupName: ${{parameters.platform.serviceGroupName}}
+      workload: ${{parameters.platform.workload}}

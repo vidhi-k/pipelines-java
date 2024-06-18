@@ -1,0 +1,78 @@
+trigger: none
+    
+resources:
+  repositories:
+  - repository: GovernedTemplates
+    type: git
+    name: OneBranch.Pipelines/GovernedTemplates
+    ref: refs/heads/main
+
+  pipelines:
+  - pipeline: PrimaryArtifact
+    source: "PublishValidationArtifacts"
+    branch: u/rohithreddy/1EsGallatinValidation
+
+extends:
+  template: v2/Microsoft.Official.yml@GovernedTemplates
+  parameters:
+    platform:
+      name: m365
+      workload: Substrate
+      serviceTreeId: "28a2529f-7085-4bbf-aa02-787135bb26a8"
+      serviceGroupName: "CosmicPlatformtest"
+    featureFlags: 
+      enableCheckout: true
+    
+    stages:
+
+    - stage: 'Gal_CosmicSetup'
+      variables:
+        stage_type: nonDeployment
+      displayName: 'CosmicSetup'
+      jobs:
+      - job: SetupCosmicPipelineVariables
+        pool: 
+          type: release
+        steps:          
+          - download: PrimaryArtifact 
+          - task: comic_deployment_priming_prod_with_onebranch@0
+            name: SetVar
+            inputs:
+              DeploymentParamtersFilePath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop/CosmicRS/ServiceGroupRoot/ModelService-deployment-parameters.json'
+
+#***************************************Prod_SDF_0 deployment************************************************
+
+    - stage: 'Gal_Release'  
+      dependsOn: [Gal_CosmicSetup]
+      displayName: 'Deploy test service to galltin'
+      variables:
+        stage_type: deployment
+        azure_subscription_id: "05fee392-45be-4e1a-bc22-e326f79a966d"
+        namespace_ring_json: '[{"Ring": "Gallatin", "Namespace": "cosmic-platform-test" }]'
+        SourceImages: $[ stageDependencies.Gal_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.Gal_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.Gal_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        pool:
+          type: release
+        steps:
+          - download: PrimaryArtifact
+          - task: prepare-deployment@1
+            inputs:
+              taskType: 'setupLockboxAuthzVariables'
+            env:
+              ServiceTreeId: '28a2529f-7085-4bbf-aa02-787135bb26a8'
+              ServiceGroupName: 'CosmicPlatformTest'
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'LockboxService'
+              ServiceRootLocation: 'LinkedArtifact'
+              RolloutSpecType: 'RSPath'
+              ServiceRootPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop/CosmicRS/ServiceGroupRoot'
+              RolloutSpecPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop/CosmicRS/ServiceGroupRoot/cosmicplatformtest-gallatin-skip-jwt.rolloutspec.json'
+              OutputRolloutId: 'ev2RolloutID'
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_Gallatin)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": ""           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "test"           }, {             "find": "__RUN_CONTAINER_IMAGE_VALIDATION__",             "replaceWith": "false"           }  ]       }   ] } '
+            env:
+              ServiceTreeGuid: '28a2529f-7085-4bbf-aa02-787135bb26a8'

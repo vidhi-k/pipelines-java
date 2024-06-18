@@ -1,0 +1,104 @@
+trigger: none
+
+schedules:
+- cron: '0 0 * * *'
+  displayName: Daily midnight build
+  branches:
+    include:
+    - master
+  always: true
+  
+resources:
+  repositories:
+  - repository: GovernedTemplates
+    type: git
+    name: OneBranch.Pipelines/GovernedTemplates
+    ref: refs/heads/main
+
+  pipelines:
+  - pipeline: PrimaryArtifact
+    source: "D2Services-CosmicPlatformTest-Windows-Official"
+    branch: master
+
+extends:
+  template: v2/Microsoft.NonOfficial.yml@GovernedTemplates
+  parameters:
+    platform:
+      name: m365
+      workload: 'Substrate'
+      serviceTreeId: "28a2529f-7085-4bbf-aa02-787135bb26a8"
+      serviceGroupName: "Microsoft.O365.Cosmic.AppInfra"
+    featureFlags: 
+      enableCheckout: true
+    stages:
+    - stage: 'PROD_CosmicSetup'
+      variables:
+        stage_type: nonDeployment
+      displayName: 'CosmicSetup'
+      jobs:
+      - job: SetupCosmicPipelineVariables
+        pool: 
+          type: release
+        steps:
+          - download: PrimaryArtifact 
+          - task: comic_deployment_priming_prod_with_onebranch@0
+            name: SetVar
+            inputs:
+              DeploymentParamtersFilePath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop_CosmicArtifact_CosmicArtifactJob/package/ModelService/ModelService-deployment-parameters.json'
+
+  
+#***************************************Gcc ring deployment************************************************
+    
+    - stage: 'Gcc_Deploy'      
+      displayName: 'Deploy service to Gcc ring'
+      dependsOn: ['PROD_CosmicSetup']
+      variables:
+        stage_type: deployment
+        azure_subscription_id: "56ccb22f-6e67-4d21-a3f3-09db358d5cca"
+        namespace_ring_json: '[{"Ring": "GCC", "Namespace": "cosmic-platform-test" }]'
+        SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        timeoutInMinutes: 0
+        pool:
+          type: release
+        steps:
+          - download: PrimaryArtifact
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'LockboxService'
+              ServiceRootPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop_CosmicArtifact_CosmicArtifactJob/package/ModelService'
+              RolloutSpecPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop_CosmicArtifact_CosmicArtifactJob/package/ModelService/cosmicplatformtest-atm-gcch.rolloutspec.json'
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_GCC)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d01"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "test"           }, {             "find": "__SKIP_SDP__",             "replaceWith": "true"           }  ]       }   ] }  '
+          
+
+#***************************************Dod ring deployment************************************************
+    
+    - stage: 'Dod_Deploy'      
+      displayName: 'Deploy service to Dod ring'
+      dependsOn: ['PROD_CosmicSetup']
+      variables:
+        stage_type: deployment
+        azure_subscription_id: "89ed897f-97b0-4466-9049-42477a9d4776"
+        namespace_ring_json: '[{"Ring": "DOD", "Namespace": "cosmic-platform-test" }]'
+        SourceImages: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.SourceImages'] ]
+        CatalogHash: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.CatalogHash'] ]
+        VersionToDeploy: $[ stageDependencies.PROD_CosmicSetup.SetupCosmicPipelineVariables.outputs['SetVar.VersionToDeploy'] ]
+      jobs:
+      - job: ReleaseJob
+        timeoutInMinutes: 0
+        pool:
+          type: release
+        steps:
+          - download: PrimaryArtifact
+          - task: ExpressV2Internal@1
+            displayName: 'Ev2 Deploy'
+            inputs:
+              EndpointProviderType: 'LockboxService'
+              ServiceRootPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop_CosmicArtifact_CosmicArtifactJob/package/ModelService'
+              RolloutSpecPath: '$(PIPELINE.WORKSPACE)/PrimaryArtifact/drop_CosmicArtifact_CosmicArtifactJob/package/ModelService/cosmicplatformtest-dod.rolloutspec.json'
+              InlineDynamicBindingOverrides: '{   "$schema": "https://ev2schema.azure.net/schemas/2020-01-01/scopeBindings.json",   "contentVersion": "1.0.0.0",   "scopeBindings": [     {         "scopeTagName": "SubmitAppRelease",         "bindings": [           {             "find": "__LOCKBOX_AUTHORIZATION_TOKEN__",             "replaceWith": "$(JWT_cosmic-platform-test_DOD)"           },  {"find": "__RELEASE_CONTEXT__",        "replaceWith": "{}"},  {             "find": "__SOURCE_IMAGE_DIGESTS__",             "replaceWith": "$(SourceImages)"           },           {             "find": "__RELEASEID__",             "replaceWith": "$(Build.BuildId)"           } ,           {             "find": "__PARTITION__",             "replaceWith": "d01"           },{             "find": "__DEPLOYMENT_VERSION__",             "replaceWith": "$(VersionToDeploy)"           }, {             "find": "__CHECK_M365SDPPOLICIES__",             "replaceWith": "false"           }, {             "find": "__SECRETS_RESOLUTION_SCOPE__",             "replaceWith": "test"           }, {             "find": "__SKIP_SDP__",             "replaceWith": "true"           }  ]       }   ] }  '
+          

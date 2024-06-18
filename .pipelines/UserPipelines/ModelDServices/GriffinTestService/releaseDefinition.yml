@@ -1,0 +1,56 @@
+trigger: none
+
+appendCommitMessageToRunName: false
+
+variables:
+- group: GriffinTestPipelineVariables
+
+parameters:
+- name: BuildVersion
+  type: string
+
+resources:
+  repositories:
+  - repository: GovernedTemplates
+    type: git
+    name: OneBranch.Pipelines/GovernedTemplates
+    ref: refs/heads/main
+
+  pipelines:
+  - pipeline: PrimaryArtifact
+    source: "ControlPlane Official"
+    branch: master
+    version: ${{ parameters.BuildVersion }}
+
+extends:
+  template: v2/Microsoft.Official.yml@GovernedTemplates
+  parameters:
+    platform:
+      name: m365
+      workload: Substrate
+      serviceTreeId: '28a2529f-7085-4bbf-aa02-787135bb26a8'
+      serviceGroupName: "GriffinEv2Samples"
+
+    stages:             
+      - stage: 'Prod_Deploy_GriffinTestApp'
+        displayName: Deploying GriffinTest App in Production environment
+        variables:
+          stage_type: deployment
+          daysToRetain: 540
+          azure_subscription_id: "4ba6324c-587d-48d4-9ebe-9f260c3ed4a4"
+        jobs:
+          - job: ReleaseJob
+            pool:
+              type: release
+            steps:
+              - download: PrimaryArtifact
+              - task: artifactDropDownloadTask@0
+                inputs:
+                  dropMetadataContainerName: DropMetaData
+                  rootPaths: '/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+                  usePat: false
+              - task: ExpressV2Internal@1
+                inputs:
+                  EndpointProviderType: 'LockboxService'
+                  ServiceRootPath: '$(System.DefaultWorkingDirectory)/drop/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/'
+                  RolloutSpecPath: '$(System.DefaultWorkingDirectory)/drop/target/Distrib/GriffinComponents/all/retail/amd64/GriffinAzureEv2/GriffinEv2Sample/RolloutSpec.Prod.json'
