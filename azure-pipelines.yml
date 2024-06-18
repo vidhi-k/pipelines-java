@@ -10,15 +10,15 @@ pool:
   vmImage: ubuntu-latest
 
 extends:
-  template: .pipelines/M365GovernedTemplates/M365.NonOfficial.Release.yml@Test
+  template: v2/Microsoft.NonOfficial.yml@OneBranchTemplates
   parameters:
     platform:
       name: m365
       workload: 'SPO'
-      serviceTreeId: "28a2529f-7085-4bbf-aa02-787135bb26a8"
+      serviceTreeId: $(service_tree_id)
       serviceGroupName: 'cosmic.saferolloutconfig.services'
       sdpPolicyInput:
-        payloadName: "OceLocatorJobs"
+        payloadName: <ServiceName>
     stages:
     - stage: 'Prod_RolloutServiceSetup'
       displayName: 'RolloutServiceSetup'
@@ -36,5 +36,5 @@ extends:
             PayloadType: 'SPOF'
             PayloadScope: 'SPOF'
             PayloadRisk: 'Medium'
-            PayloadNameregister: "OceLocatorJobs"
-            PayloadMetaData: "{'$type': 'EV2Rollout', 'Environment': 'global' }"
+            PayloadNameregister: <ServiceName>
+            PayloadMetaData: "{'$type': 'EV2Rollout', 'Environment': 'global','RolloutSpecName':'<EV2serviceGroupName>' }"
